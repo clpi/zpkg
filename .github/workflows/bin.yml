@@ -1,0 +1,24 @@
+name: Bin
+on: [push]
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+      fail-fast: false
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: goto-bus-stop/setup-zig@v1
+        with:
+          version: 0.10.0-dev.555+1b6a1e691
+
+      - run: zig build test -Dfetch -Dci_target=${{matrix.os}}
+        shell: bash
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: zpk ${{ matrix.os }}
+          path: zig-out/bin/*
+
+

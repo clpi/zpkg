@@ -12,7 +12,7 @@ const Style = Fmt.Style;
 const Color = Fmt.Color;
 
 pub fn main() anyerror!void {
-    var gpa = Gpa{};
+    comptime var gpa = Gpa{};
     var arena = std.heap.ArenaAllocator.init(gpa.allocator());
     const galloc = if (comptime builtin.target.isWasm())
         arena.child_allocator

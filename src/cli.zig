@@ -1,104 +1,152 @@
-const std = @import("std");
+pub const std = @import("std");
+const mem = std.mem;
 const str = []const u8;
-const log = std.log.scoped(.cli);
-const stdin = std.io.getStdIn();
-const stdout = std.io.getStdOut();
 const builtin = @import("builtin");
-const Gpa = std.heap.GeneralPurposeAllocator(.{});
-const Allocator = std.mem.Allocator;
-const ArgIterator = std.process.ArgIterator;
 
-pub fn eq(a: str, b: str) bool {
-    return std.mem.eql(u8, a, b);
-}
+pub const ArgPosition = union {
+    index: usize,
+    cmd: Cmd,
+    flag: Flag,
+    opt: Opt,
 
-pub fn isCmd(s: str, long: str, short: str) bool {
-    if (!std.mem.eql(u8, s, ""))
-        return eq(s, short) or eq(s, long);
-    return eq(s, long);
-}
-
-pub fn isArg(s: str, long: str, short: str) bool {
-    if (std.mem.startsWith("--", s)) 
-        return eq(s, long);
-    if (std.mem.startsWith("-", s))
-        return eq(s, short);
-    return false;
-}
-
-pub const Cmd = enum(u8) {
-    help, init, run, build, shell,
-
-    pub fn fromStr(s: []const u8) ?Cmd {
-        if (isCmd(s, "help", "h")) return .help
-        else if (isCmd(s, "init", "i")) return .init
-        else if (isCmd(s, "run", "r"))  return .run
-        else if (isCmd(s, "build", "b")) return .build
-        else return null;
+    pub fn initIndex(ix: usize) !ArgPosition {
+        if (ix < 0) return DefinitionError.NoNegativeNumbers;
+        return ArgPosition { .index = ix };
     }
 
-    pub fn default() Cmd {
-        return .help;
+    pub fn initCmd(cmd: Cmd) !ArgPosition {
+        return ArgPosition { .cmd = cmd };
+    }
+};
+
+pub const IndexRange = struct {
+    above: ?usize,
+    below: ?usize,
+};
+
+pub const Scope = union(enum(u3)) {
+    position = union(enum(u2)) {
+        exact: usize,
+        range = IndexRange,
+    },
+    cmd: Cmd,
+    global,
+};
+
+pub const Opt = struct {
+    short: str,
+    long: str,
+    strval: ?str = null,
+    default_val: ?str = null,
+    required: bool = false,
+    valtype: type = str,
+
+    pub const OptError = error{
+        missing_value,
+        invalid_value_type,
+        custom_error,
+    };
+};
+
+pub const Flag = struct {
+    short: str,
+    long: str,
+    pos: ?usize = null,
+
+    /// Take first letter of str for short, str itself for long, no pos
+    pub fn default(s: str) Flag {
+        return Flag{ .short = s[0..1], .long = s, .pos = null };
     }
 
-    pub fn toStr(self: @This()) []const u8 {
-        return @tagName(self);
+    pub fn init(s: str, long: str, pos: ?usize) Flag {
+        return Flag{.short = s, .long = long, .pos = pos};
     }
+};
 
-    pub fn run(self: @This()) CmdError!void {
-        log.info("\x1b[32;1m[RUN]:\x1b[0m\x1b[33m {s}\x1b[0m", .{self.toStr()});
-        switch (self) {
-            .help => {
+pub const Cmd = struct {
+    short: str,
+    long: str,
+    pos: ?usize,
+};
+pub fn Param(comptime Ty: type) type {
+    return struct {
+        const Self = @This();
+        param: Ty,
+        val: ?str = null,
+    };
+}
 
-            },
-            .shell => {
+pub fn List(comptime T: type) []const T {
+    return [_]T{ };
+}
 
-            },
-            .init => {
+// pub const RawArgs = struct {
+//     args: [_][]const u8
+// };
+//
+pub fn Parser() type {
+    return struct {
+        const Context = union(enum) {
+            parsing: Position,
+            in_opt: Opt,
+            parsing_literal: Position,
+        };
 
-            },
-            .run => {
+        const Position = struct {
+            idx: usize,
+            current: str,
+        };
 
-            },
-            .build => {
+        const Errors = error{
 
-            }
+        };
+
+        cmds: []const Cmd,
+        opts: []const Opt,
+        flags: []const Flag,
+        args: *std.process.ArgIterator,
+        context: Context = .parsing,
+        errors: [:0]Errors = [_]Errors{},
+        
+
+
+
+    };
+}
+
+pub const DefinitionError = error{
+    NoNegativeNumbers
+};
+
+pub fn CmdInfo(
+    
+    comptime Opts: type, 
+    comptime Flags: type,
+    comptime Args: type) type
+{
+    return struct {
+        opts: ?Opts,
+        flags: ?Flags,
+        args: ?Args,
+        pos: ?usize = 0,
+
+        const Self = @This();
+        
+        pub fn init(o: ?Opts, f: ?Flags, a: ?Args, pos: ?usize) Self {
+            return Self {
+                .opts = o,
+                .flags = f,
+                .args = a,
+                .pos = pos,
+            };
         }
-    }
-};
 
-
-pub fn cli() anyerror!void {
-    var gpa = Gpa{};
-    const global_alloc: Allocator = if (comptime builtin.target.isWasm()) {
-        return gpa.allocator();
-    } else gpa.allocator();
-    var args: ArgIterator = std.process.args();
-    while ( args.next(global_alloc)) |arg| {
-        log.info("arg: {s}", .{try arg});
-    }
-    _ = args.skip();
-    std.log.info("All your codebase are belong to us.", .{});
+        pub fn mainSubcmd(o: ?Opts, f: ?Flags, a: ?Args) Self {
+            return Self.init(o, f, a, 0);
+        }
+    };
 }
 
-pub const CmdError = error{
-    parse_error,
-    run_error
-};
-
-const testing = std.testing;
-
-test "Cmd fromStr" {
-    try testing.expectEqual(Cmd.fromStr("help"), .help);
-    try testing.expectEqual(Cmd.fromStr("init"), .init);
-    try testing.expectEqual(Cmd.fromStr("r"), .run);
-    try testing.expectEqual(Cmd.fromStr("b"), .build);
-}
-test "Cmd toStr" {
-    try testing.expect(std.mem.eql(u8, Cmd.toStr(.help), "help"));
-    try testing.expect(std.mem.eql(u8, Cmd.toStr(.init), "init"));
-    try testing.expect(std.mem.eql(u8, Cmd.toStr(.run), "run"));
-    try testing.expect(std.mem.eql(u8, Cmd.toStr(.build), "build"));
-    var stdo =  stdout.writer();
-    _ = try stdo.write("hje");
+test "List generic" {
+    try std.testing.expectEqual(@TypeOf(List(str)), @TypeOf([][]const u8));
 }
